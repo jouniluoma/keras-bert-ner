@@ -2,7 +2,8 @@
 Named entity recognition built on top of BERT and keras-bert. 
 
 ## Dependencies:
-bert (added as submodule to this project. FullTokenizer is used instead of keras-bert tokenizer) 
+bert (added as submodule to this project. FullTokenizer is used instead of keras-bert tokenizer)
+
 keras-bert (https://pypi.org/project/keras-bert/)
 
 Pretrained BERT model, e.g. from:
