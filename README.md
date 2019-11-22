@@ -14,4 +14,5 @@ input data e.g. from:
 - https://github.com/mpsilfve/finer-data
 
 Input data is expected to be in CONLL:ish format where Token and Tag are tab separated. 
+First string on the line corresponds to Token and second string to Tag
   
