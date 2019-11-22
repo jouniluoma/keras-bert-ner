@@ -9,7 +9,6 @@ os.environ['TF_KERAS'] = '1'
 
 from tensorflow import keras
 from bert import tokenization
-from keras.callbacks import Callback
 from keras_bert import load_trained_model_from_checkpoint, AdamWarmup
 from keras_bert import calc_train_steps
 
@@ -128,40 +127,6 @@ def create_optimizer(num_example, options):
     )
     return optimizer
 
-
-#Callback for f1-score calculation on validation data at epoch end
-class FB1(Callback):
-    def __init__(self, valid_data, inv_tag_dict):
-        super(FB1, self).__init__()
-        self.valid_data = valid_data
-        self.inv_tags = inv_tag_dict
-        self.all_lines=[]
-        self.lengths=lengths
-
-    def on_train_begin(self, logs={}):
-        self.val_fb1s = []
-        self.lines = []
-        self.counter = 0
-
-    def on_epoch_end(self,epoch,logs={}):
-        val_predict= self.model.predict(self.valid_data[0])
-        val_targ = self.valid_data[1]
-        self.do_lines(val_targ,val_predict)
-        c = conlleval.evaluate(self.lines)
-        y = conlleval.metrics(c)
-        self.val_fb1s.append(y)
-        self.all_lines.append(self.lines)
-        self.lines=[]
-        self.counter=0
-        print("F-Score: ", y[0].fscore)
-        return
-    
-    def do_lines(self, targets,predicts):
-        for i,sent in enumerate(predicts):
-            for j,wordpiece in enumerate(sent):
-                if j>0 and self.valid_data[2][i][j]==1:
-                    self.lines.append("{}\t{}\t{}\n".format(self.counter,self.inv_tags[targets[i][j][0]],self.inv_tags[np.argmax(wordpiece)]))
-                    self.counter += 1
 
 
 def encode(lines, tokenizer, max_len):
