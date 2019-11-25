@@ -1,16 +1,14 @@
 import os
 
-# TF_KERAS must be added to environment variables in order to use TPU
-# os.environ['TF_KERAS'] = '1'
-
 import sys
 
 import numpy as np
 import conlleval
 
 from common import encode, label_encode, read_tags, read_data, write_result
-from common import combine_lines, read_sentences, load_pretrained
+from common import combine_sentences, read_sentences, load_pretrained
 from common import create_ner_model, create_optimizer, argument_parser
+from common import save_ner_model
 
 
 def main(argv):
@@ -23,15 +21,16 @@ def main(argv):
     tag_map = read_tags(args.train_data)
     tag_map['[SEP]']=len(tag_map)    # add special tags
     tag_map['[PAD]']=len(tag_map)
+    inv_tag_map = { v: k for k, v in tag_map.items() }
 
     train_lines, train_tags, train_lengths = read_data(
         args.train_data, tokenizer, seq_len-1)
     test_lines, test_tags, test_lengths = read_data(
         args.test_data, tokenizer, seq_len-1)
 
-    tr_lines, tr_tags, tr_numbers = combine_lines(
+    tr_lines, tr_tags, tr_numbers = combine_sentences(
         train_lines, train_tags, train_lengths, seq_len)
-    te_lines,te_tags,te_numbers = combine_lines(
+    te_lines,te_tags,te_numbers = combine_sentences(
         test_lines, test_tags, test_lengths, seq_len)
 
     train_x = encode(tr_lines, tokenizer, seq_len)
@@ -58,19 +57,21 @@ def main(argv):
         batch_size=args.batch_size
     )
 
+    if args.ner_model_dir is not None:
+        label_list = [v for k, v in sorted(list(inv_tag_map.items()))]
+        save_ner_model(ner_model, tokenizer, label_list, args)
+
     probs = ner_model.predict(test_x, batch_size=args.batch_size)
-
-    tag_dict_inv = { v: k for k, v in tag_map.items() }
-
     preds = np.argmax(probs, axis=-1)
+
     pred_tags = []
     for i, pred in enumerate(preds):
-        pred_tags.append([tag_dict_inv[t] for t in pred[1:len(test_lines[i])+1]])
+        pred_tags.append([inv_tag_map[t] for t in pred[1:len(test_lines[i])+1]])
 
     sent = read_sentences(args.test_data)
 
     lines = write_result(
-        args.result_file, sent, test_lengths, test_lines, test_tags, pred_tags)
+        args.output_file, sent, test_lengths, test_lines, test_tags, pred_tags)
 
     c = conlleval.evaluate(lines)
     conlleval.report(c)
