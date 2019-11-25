@@ -20,10 +20,28 @@ First string on the line corresponds to Token and second string to Tag
   
 ## Quickstart
 
+Get submodules
+
 ```
 git submodule init
 git submodule update
+```
+
+Get pretrained models and data
+
+```
 ./scripts/get-models.sh
 ./scripts/get-finer.sh
 ```
 
+Run an experiment on FiNER news data
+
+```
+./scripts/run-finer-news.sh
+```
+
+If in a Slurm environment, edit `scripts/slurm-run.sh` to match your setup and run
+
+```
+sbatch scripts/slurm-run.sh scripts/run-finer-news.sh
+```
