@@ -38,10 +38,16 @@ Run an experiment on FiNER news data
 
 ```
 ./scripts/run-finer-news.sh
+./scripts/predict-finer-news.sh
+python compare.py data/finer-news/test.tsv finer-news-predictions.tsv 
 ```
 
 If in a Slurm environment, edit `scripts/slurm-run.sh` to match your setup and run
 
 ```
 sbatch scripts/slurm-run.sh scripts/run-finer-news.sh
+sbatch scripts/slurm-run.sh scripts/predict-finer-news.sh
+python compare.py data/finer-news/test.tsv finer-news-predictions.tsv
 ```
+
+(the first job must finish before running the second.)

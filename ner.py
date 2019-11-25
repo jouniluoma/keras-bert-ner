@@ -6,7 +6,7 @@ import numpy as np
 import conlleval
 
 from common import encode, label_encode, read_tags, read_data, write_result
-from common import combine_lines, read_sentences, load_pretrained
+from common import combine_sentences, read_sentences, load_pretrained
 from common import create_ner_model, create_optimizer, argument_parser
 from common import save_ner_model
 
@@ -28,9 +28,9 @@ def main(argv):
     test_lines, test_tags, test_lengths = read_data(
         args.test_data, tokenizer, seq_len-1)
 
-    tr_lines, tr_tags, tr_numbers = combine_lines(
+    tr_lines, tr_tags, tr_numbers = combine_sentences(
         train_lines, train_tags, train_lengths, seq_len)
-    te_lines,te_tags,te_numbers = combine_lines(
+    te_lines,te_tags,te_numbers = combine_sentences(
         test_lines, test_tags, test_lengths, seq_len)
 
     train_x = encode(tr_lines, tokenizer, seq_len)
@@ -71,7 +71,7 @@ def main(argv):
     sent = read_sentences(args.test_data)
 
     lines = write_result(
-        args.result_file, sent, test_lengths, test_lines, test_tags, pred_tags)
+        args.output_file, sent, test_lengths, test_lines, test_tags, pred_tags)
 
     c = conlleval.evaluate(lines)
     conlleval.report(c)

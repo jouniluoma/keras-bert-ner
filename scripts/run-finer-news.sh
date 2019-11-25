@@ -10,6 +10,7 @@ set -euo pipefail
 datadir="$SCRIPTDIR/../data/finer-news"
 train_data="$datadir/train.tsv"
 test_data="$datadir/test.tsv"
+ner_model_dir="$SCRIPTDIR/../finer-news-model"
 
 modeldir="$SCRIPTDIR/../models/bert-base-finnish-cased-v1"
 model="$modeldir/bert_model.ckpt"
@@ -40,4 +41,5 @@ python "$SCRIPTDIR/../ner.py" \
     --max_seq_length $max_seq_length \
     --batch_size $batch_size \
     --train_data "$train_data" \
-    --test_data "$test_data"
+    --test_data "$test_data" \
+    --ner_model_dir "$ner_model_dir" \

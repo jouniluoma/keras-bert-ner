@@ -3,7 +3,7 @@ import json
 import numpy as np
 import conlleval
 
-from collections import deque
+from collections import deque, namedtuple
 from argparse import ArgumentParser
 
 os.environ['TF_KERAS'] = '1'
@@ -11,65 +11,72 @@ os.environ['TF_KERAS'] = '1'
 from tensorflow import keras
 from bert import tokenization
 from keras_bert import load_trained_model_from_checkpoint, AdamWarmup
-from keras_bert import calc_train_steps
+from keras_bert import calc_train_steps, get_custom_objects
 
 from config import DEFAULT_SEQ_LEN, DEFAULT_BATCH_SIZE, DEFAULT_EPOCHS
 from config import DEFAULT_LR, DEFAULT_WARMUP_PROPORTION
 
 
-def argument_parser():
+Sentences = namedtuple('Sentences', [
+    'words', 'tokens', 'labels', 'lengths', 
+    'combined_tokens', 'combined_labels'
+])
+
+
+def argument_parser(mode='train'):
     argparser = ArgumentParser()
-    argparser.add_argument(
-        '--train_data', required=True,
-        help='Training data'
-    )
-    argparser.add_argument(
-        '--dev_data', default=None,
-        help='Training data'
-    )
+    if mode != 'predict':
+        argparser.add_argument(
+            '--train_data', required=True,
+            help='Training data'
+        )
+        argparser.add_argument(
+            '--dev_data', default=None,
+            help='Training data'
+        )
+        argparser.add_argument(
+            '--vocab_file', required=True,
+            help='Vocabulary file that BERT model was trained on'
+        )
+        argparser.add_argument(
+            '--bert_config_file', required=True,
+            help='Configuration for pre-trained BERT model'
+        )
+        argparser.add_argument(
+            '--init_checkpoint', required=True,
+            help='Initial checkpoint for pre-trained BERT model'
+        )
+        argparser.add_argument(
+            '--max_seq_length', type=int, default=DEFAULT_SEQ_LEN,
+            help='Maximum input sequence length in WordPieces'
+        )
+        argparser.add_argument(
+            '--do_lower_case', default=False, action='store_true',
+            help='Lower case input text (for uncased models)'
+        )
+        argparser.add_argument(
+        '--learning_rate', type=float, default=DEFAULT_LR,
+            help='Initial learning rate'
+        )
+        argparser.add_argument(
+            '--num_train_epochs', type=int, default=DEFAULT_EPOCHS,
+            help='Number of training epochs'
+        )
+        argparser.add_argument(
+            '--warmup_proportion', type=float, default=DEFAULT_WARMUP_PROPORTION,
+            help='Proportion of training to perform LR warmup for'
+        )
     argparser.add_argument(
         '--test_data', required=True,
         help='Test data'
-    )
-    argparser.add_argument(
-        '--vocab_file', required=True,
-        help='Vocabulary file that BERT model was trained on'
-    )
-    argparser.add_argument(
-        '--bert_config_file', required=True,
-        help='Configuration for pre-trained BERT model'
-    )
-    argparser.add_argument(
-        '--init_checkpoint', required=True,
-        help='Initial checkpoint for pre-trained BERT model'
-    )
-    argparser.add_argument(
-        '--max_seq_length', type=int, default=DEFAULT_SEQ_LEN,
-        help='Maximum input sequence length in WordPieces'
-    )
-    argparser.add_argument(
-        '--do_lower_case', default=False, action='store_true',
-        help='Lower case input text (for uncased models)'
-    )
-    argparser.add_argument(
-        '--learning_rate', type=float, default=DEFAULT_LR,
-        help='Initial learning rate'
     )
     argparser.add_argument(
         '--batch_size', type=int, default=DEFAULT_BATCH_SIZE,
         help='Batch size for training'
     )
     argparser.add_argument(
-        '--num_train_epochs', type=int, default=DEFAULT_EPOCHS,
-        help='Number of training epochs'
-    )
-    argparser.add_argument(
-        '--warmup_proportion', type=float, default=DEFAULT_WARMUP_PROPORTION,
-        help='Proportion of training to perform LR warmup for'
-    )
-    argparser.add_argument(
-        '--result_file', default="results.txt",
-        help='Default file to write the results'
+        '--output_file', default="output.tsv",
+        help='File to write predicted outputs to'
     )
     argparser.add_argument(
         '--ner_model_dir', default='ner-model',
@@ -124,6 +131,32 @@ def save_ner_model(ner_model, tokenizer, labels, options):
     with open(_ner_vocab_path(options.ner_model_dir), 'w') as out:
         for i, v in sorted(list(tokenizer.inv_vocab.items())):
             print(v, file=out)
+
+
+def load_ner_model(ner_model_dir):
+    with open(_ner_config_path(ner_model_dir)) as f:
+        config = json.load(f)
+    model = keras.models.load_model(
+        _ner_model_path(ner_model_dir),
+        custom_objects=get_custom_objects()
+    )
+    tokenizer = tokenization.FullTokenizer(
+        vocab_file=_ner_vocab_path(ner_model_dir),
+        do_lower_case=config['do_lower_case']
+    )
+    labels = read_labels(_ner_labels_path(ner_model_dir))
+    return model, tokenizer, labels, config
+
+
+def read_labels(path):
+    labels = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line in labels:
+                raise ValueError('duplicate value {} in {}'.format(line, path))
+            labels.append(line)
+    return labels
 
 
 def create_ner_model(pretrained_model, num_labels):
@@ -230,6 +263,16 @@ def tokenize_and_split(words, word_labels, tokenizer, max_length):
     return split_tokens, split_labels, lengths
 
 
+def tokenize_and_split_sentences(orig_words, orig_labels, tokenizer, max_length):
+    words, labels, lengths = [], [], []
+    for w, l in zip(orig_words, orig_labels):
+        split_w, split_l, lens = tokenize_and_split(w, l, tokenizer, max_length-2)
+        words.extend(split_w)
+        labels.extend(split_l)
+        lengths.extend(lens)
+    return words, labels, lengths
+
+
 def read_sentences(input_file):
     sentences, words = [], []
     with open(input_file, 'r') as f:
@@ -244,6 +287,49 @@ def read_sentences(input_file):
         sentences.append(words)
     return sentences
     
+
+def read_conll(input_file, mode='train'):
+    # words and labels are lists of lists, outer for sentences and
+    # inner for the words/labels of each sentence.
+    words, labels = [], []
+    curr_words, curr_labels = [], []
+    with open(input_file) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                fields = line.split('\t')
+                if len(fields) > 1:
+                    curr_words.append(fields[0])
+                    if mode != 'test':
+                        curr_labels.append(fields[1])
+                    else:
+                        curr_labels.append('O')
+                else:
+                    print('ignoring line: {}'.format(line))
+                    pass
+            elif curr_words:
+                words.append(curr_words)
+                labels.append(curr_labels)
+                curr_words, curr_labels = [], []
+    if curr_words:
+        words.append(curr_words)
+        labels.append(curr_labels)
+    return words, labels
+
+
+def process_sentences(words, orig_labels, tokenizer, max_seq_len):
+    # Tokenize words, split sentences to max_seq_len, and keep length
+    # of each source word in tokens
+    tokens, labels, lengths = tokenize_and_split_sentences(
+        words, orig_labels, tokenizer, max_seq_len)
+
+    # Extend each sentence to include context sentences
+    combined_tokens, combined_labels, _ = combine_sentences(
+        tokens, labels, lengths, max_seq_len)
+
+    return Sentences(
+        words, tokens, labels, lengths, combined_tokens, combined_labels)
+
 
 def read_data(input_file, tokenizer, max_seq_length):
     lines, tags, lengths = [], [], []
@@ -278,7 +364,7 @@ def read_data(input_file, tokenizer, max_seq_length):
     return lines, tags, lengths
 
 
-def write_result(fname, original, token_lengths, tokens, labels, predictions):
+def write_result(fname, original, token_lengths, tokens, labels, predictions, mode='train'):
     lines=[]
     with open(fname,'w+') as f:
         toks = deque([val for sublist in tokens for val in sublist])
@@ -293,7 +379,11 @@ def write_result(fname, original, token_lengths, tokens, labels, predictions):
                 for i in range(int(lengths.popleft())-1):
                     labs.popleft()
                     pred.popleft()                           
-                line = "{}\t{}\t{}\n".format(word,label,predicted)
+                if mode != 'predict':
+                    line = "{}\t{}\t{}\n".format(word, label, predicted)
+                else:
+                    # In predict mode, labels are just placeholder dummies
+                    line = "{}\t{}\n".format(word, predicted)
                 f.write(line)
                 lines.append(line)
             f.write("\n")
@@ -302,7 +392,7 @@ def write_result(fname, original, token_lengths, tokens, labels, predictions):
 
 
 # Include maximum number of consecutive sentences to each sample
-def combine_lines(lines, tags, lengths, max_seq):
+def combine_sentences(lines, tags, lengths, max_seq):
     lines_in_sample = []
     new_lines = []
     new_tags = []
