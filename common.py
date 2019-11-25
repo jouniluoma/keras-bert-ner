@@ -1,4 +1,5 @@
 import os
+import json
 import numpy as np
 import conlleval
 
@@ -67,20 +68,12 @@ def argument_parser():
         help='Proportion of training to perform LR warmup for'
     )
     argparser.add_argument(
-        '--repeats', type=int, default=5,
-        help='How many times the test is repeated for mean of F1 score'
-    )
-    argparser.add_argument(
-        '--result_dir', default="./output/",
-        help='Default directory to write the results'
-    )
-    argparser.add_argument(
         '--result_file', default="results.txt",
         help='Default file to write the results'
     )
     argparser.add_argument(
-        '--result_prefix', default="result",
-        help='Default file to write the results'
+        '--ner_model_dir', default='ner-model',
+        help='Trained NER model directory'
     )
     return argparser
 
@@ -98,6 +91,39 @@ def load_pretrained(options):
         do_lower_case=options.do_lower_case
     )
     return model, tokenizer
+
+
+def _ner_model_path(ner_model_dir):
+    return os.path.join(ner_model_dir, 'model.hdf5')
+
+
+def _ner_vocab_path(ner_model_dir):
+    return os.path.join(ner_model_dir, 'vocab.txt')
+
+
+def _ner_labels_path(ner_model_dir):
+    return os.path.join(ner_model_dir, 'labels.txt')
+
+
+def _ner_config_path(ner_model_dir):
+    return os.path.join(ner_model_dir, 'config.json')
+
+
+def save_ner_model(ner_model, tokenizer, labels, options):
+    os.makedirs(options.ner_model_dir, exist_ok=True)
+    config = {
+        'do_lower_case': options.do_lower_case,
+        'max_seq_length': options.max_seq_length,
+    }
+    with open(_ner_config_path(options.ner_model_dir), 'w') as out:
+        json.dump(config, out, indent=4)
+    ner_model.save(_ner_model_path(options.ner_model_dir))
+    with open(_ner_labels_path(options.ner_model_dir), 'w') as out:
+        for label in labels:
+            print(label, file=out)
+    with open(_ner_vocab_path(options.ner_model_dir), 'w') as out:
+        for i, v in sorted(list(tokenizer.inv_vocab.items())):
+            print(v, file=out)
 
 
 def create_ner_model(pretrained_model, num_labels):
