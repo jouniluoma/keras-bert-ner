@@ -32,6 +32,7 @@ Get pretrained models and data
 ```
 ./scripts/get-models.sh
 ./scripts/get-finer.sh
+./scripts/get-turku-ner.sh
 ```
 
 Run an experiment on FiNER news data

@@ -222,6 +222,15 @@ def label_encode(labels, tag_dict, max_len):
     return lab_enc, weights
 
 
+def get_labels(label_sequences):
+    unique = set([t for s in label_sequences for t in s])
+    labels = sorted(list(unique), reverse=True)
+    for extra_label in ['[SEP]', '[PAD]']:
+        if extra_label not in labels:
+            labels.append(extra_label)
+    return labels
+
+
 def read_tags(path):
     f = open(path, 'r')
     tags = set(l.split()[1] for l in f if l.strip() != '')

@@ -5,9 +5,10 @@ import sys
 import numpy as np
 import conlleval
 
-from common import encode, label_encode, read_tags, read_data, write_result
-from common import combine_sentences, read_sentences, load_pretrained
+from common import encode, label_encode, write_result
+from common import load_pretrained
 from common import create_ner_model, create_optimizer, argument_parser
+from common import read_conll, process_sentences, get_labels
 from common import save_ner_model
 
 
@@ -18,26 +19,22 @@ def main(argv):
 
     pretrained_model, tokenizer = load_pretrained(args)
 
-    tag_map = read_tags(args.train_data)
-    tag_map['[SEP]']=len(tag_map)    # add special tags
-    tag_map['[PAD]']=len(tag_map)
+    train_words, train_tags = read_conll(args.train_data)
+    test_words, test_tags = read_conll(args.test_data)
+    train_data = process_sentences(train_words, train_tags, tokenizer, seq_len)
+    test_data = process_sentences(test_words, test_tags, tokenizer, seq_len)
+
+    label_list = get_labels(train_data.labels)
+    tag_map = { l: i for i, l in enumerate(label_list) }
     inv_tag_map = { v: k for k, v in tag_map.items() }
 
-    train_lines, train_tags, train_lengths = read_data(
-        args.train_data, tokenizer, seq_len-1)
-    test_lines, test_tags, test_lengths = read_data(
-        args.test_data, tokenizer, seq_len-1)
+    train_x = encode(train_data.combined_tokens, tokenizer, seq_len)
+    test_x = encode(test_data.combined_tokens, tokenizer, seq_len)
 
-    tr_lines, tr_tags, tr_numbers = combine_sentences(
-        train_lines, train_tags, train_lengths, seq_len)
-    te_lines,te_tags,te_numbers = combine_sentences(
-        test_lines, test_tags, test_lengths, seq_len)
-
-    train_x = encode(tr_lines, tokenizer, seq_len)
-    test_x = encode(te_lines, tokenizer, seq_len)
-
-    train_y, train_weights = label_encode(tr_tags, tag_map, seq_len)
-    test_y, test_weights = label_encode(te_tags, tag_map, seq_len)
+    train_y, train_weights = label_encode(
+        train_data.combined_labels, tag_map, seq_len)
+    test_y, test_weights = label_encode(
+        test_data.combined_labels, tag_map, seq_len)
 
     ner_model = create_ner_model(pretrained_model, len(tag_map))
     optimizer = create_optimizer(len(train_x[0]), args)
@@ -66,12 +63,13 @@ def main(argv):
 
     pred_tags = []
     for i, pred in enumerate(preds):
-        pred_tags.append([inv_tag_map[t] for t in pred[1:len(test_lines[i])+1]])
-
-    sent = read_sentences(args.test_data)
+        pred_tags.append([inv_tag_map[t] 
+                          for t in pred[1:len(test_data.tokens[i])+1]])
 
     lines = write_result(
-        args.output_file, sent, test_lengths, test_lines, test_tags, pred_tags)
+        args.output_file, test_data.words, test_data.lengths,
+        test_data.tokens, test_data.labels, pred_tags
+    )
 
     c = conlleval.evaluate(lines)
     conlleval.report(c)
