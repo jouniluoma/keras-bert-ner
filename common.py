@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import numpy as np
 import conlleval
@@ -25,7 +26,7 @@ Sentences = namedtuple('Sentences', [
 
 def argument_parser(mode='train'):
     argparser = ArgumentParser()
-    if mode != 'predict':
+    if mode == 'train':
         argparser.add_argument(
             '--train_data', required=True,
             help='Training data'
@@ -66,10 +67,11 @@ def argument_parser(mode='train'):
             '--warmup_proportion', type=float, default=DEFAULT_WARMUP_PROPORTION,
             help='Proportion of training to perform LR warmup for'
         )
-    argparser.add_argument(
-        '--test_data', required=True,
-        help='Test data'
-    )
+    if mode != 'serve':
+        argparser.add_argument(
+            '--test_data', required=True,
+            help='Test data'
+        )
     argparser.add_argument(
         '--batch_size', type=int, default=DEFAULT_BATCH_SIZE,
         help='Batch size for training'
@@ -314,7 +316,7 @@ def read_conll(input_file, mode='train'):
                     else:
                         curr_labels.append('O')
                 else:
-                    print('ignoring line: {}'.format(line))
+                    print('ignoring line: {}'.format(line), file=sys.stderr)
                     pass
             elif curr_words:
                 words.append(curr_words)
@@ -360,7 +362,7 @@ def read_data(input_file, tokenizer, max_seq_length):
                     curr_words.append(fields[0])
                     curr_labels.append(fields[1])
                 else:
-                    print('ignoring line: {}'.format(line))
+                    print('ignoring line: {}'.format(line), file=sys.stderr)
                     pass
             elif curr_words:
                 # empty lines separate sentences
@@ -380,7 +382,6 @@ def write_result(fname, original, token_lengths, tokens, labels, predictions, mo
         labs = deque([val for sublist in labels for val in sublist])
         pred = deque([val for sublist in predictions for val in sublist])
         lengths = deque(token_lengths)
-        print(len(toks),len(labs),len(pred))
         for sentence in original:
             for word in sentence:
                 label = labs.popleft()
