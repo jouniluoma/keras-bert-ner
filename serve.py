@@ -2,11 +2,70 @@ import os
 import sys
 import unicodedata
 
+from flask import Flask, request
+
 import numpy as np
+import tensorflow as tf
 
 from common import process_sentences, load_ner_model
 from common import encode, write_result
 from common import argument_parser
+
+
+app = Flask(__name__)
+
+
+@app.route('/')
+def tag():
+    text = request.values['text']
+    return app.tagger.tag(text)
+
+
+class Tagger(object):
+    def __init__(self, model, tokenizer, labels, config):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.labels = labels
+        self.config = config
+        self.session = None
+        self.graph = None
+
+    def tag(self, text):
+        max_seq_len = self.config['max_seq_length']
+        inv_label_map = { i: l for i, l in enumerate(self.labels) }
+        words = tokenize(text)
+        dummy = ['O'] * len(words)
+        data = process_sentences([words], [dummy], self.tokenizer, max_seq_len)
+        x = encode(data.combined_tokens, self.tokenizer, max_seq_len)
+        if self.session is None or self.graph is None:
+            probs = self.model.predict(x, batch_size=8)    # assume singlethreaded
+        else:
+            with self.session.as_default():
+                with self.graph.as_default():
+                    probs = self.model.predict(x, batch_size=8)
+        preds = np.argmax(probs, axis=-1)
+        pred_labels = []
+        for i, pred in enumerate(preds):
+            pred_labels.append([inv_label_map[t]
+                                for t in pred[1:len(data.tokens[i])+1]])
+        lines = write_result(
+            'output.tsv', data.words, data.lengths,
+            data.tokens, data.labels, pred_labels, mode='predict'
+        )
+        return ''.join(lines)
+
+    @classmethod
+    def load(cls, model_dir):
+        # session/graph for multithreading, see https://stackoverflow.com/a/54783311
+        session = tf.Session()
+        graph = tf.get_default_graph()
+        with graph.as_default():
+            with session.as_default():
+                model, tokenizer, labels, config = load_ner_model(model_dir)
+                tagger = cls(model, tokenizer, labels, config)
+                tagger.session = session
+                tagger.graph = graph
+        return tagger
 
 
 punct_chars = set([
@@ -26,38 +85,8 @@ def tokenize(text):
 def main(argv):
     argparser = argument_parser('serve')
     args = argparser.parse_args(argv[1:])
-
-    ner_model, tokenizer, labels, config = load_ner_model(args.ner_model_dir)
-    max_seq_len = config['max_seq_length']
-
-    label_map = { t: i for i, t in enumerate(labels) }
-    inv_label_map = { v: k for k, v in label_map.items() }
-
-    for line in sys.stdin:
-        line = line.strip()
-        words = [tokenize(line)]
-        dummy_labels = [['O'] * len(words[0])]
-
-        test_data = process_sentences(words, dummy_labels, tokenizer,
-                                      max_seq_len)
-
-        test_x = encode(test_data.combined_tokens, tokenizer, max_seq_len)
-        probs = ner_model.predict(test_x, batch_size=args.batch_size)
-
-        preds = np.argmax(probs, axis=-1)
-        pred_labels = []
-        for i, pred in enumerate(preds):
-            pred_labels.append([inv_label_map[t] for t in 
-                                pred[1:len(test_data.tokens[i])+1]])
-
-        lines = write_result(
-            args.output_file, test_data.words, test_data.lengths,
-            test_data.tokens, test_data.labels, pred_labels, mode='predict'
-        )
-        for line in lines:
-            print(line, end='')
-        print()
-
+    app.tagger = Tagger.load(args.ner_model_dir)
+    app.run(port=8080)
     return 0
 
 
