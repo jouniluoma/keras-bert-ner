@@ -35,6 +35,14 @@ Get pretrained models and data
 ./scripts/get-turku-ner.sh
 ```
 
+Experiment on Turku NER corpus data (`run-turku-ner.sh` trains, `predict-turku-ner.sh` outputs predictions)
+
+```
+./scripts/run-turku-ner.sh
+./scripts/predict-turku-ner.sh
+python compare.py data/turku-ner/test.tsv turku-ner-predictions.tsv 
+```
+
 Run an experiment on FiNER news data
 
 ```
